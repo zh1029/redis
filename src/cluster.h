@@ -178,6 +178,8 @@ typedef struct clusterState {
     long long stats_bus_messages_received[CLUSTERMSG_TYPE_COUNT];
     long long stats_pfail_nodes;    /* Number of nodes in PFAIL status,
                                        excluding nodes without address. */
+    long long last_cluster_cron_cycle;  /*clusterCron active expire cycle*/
+    long long stats_mstimediff;     /* time difference since system time jump detected*/
 } clusterState;
 
 /* Redis cluster messages header */

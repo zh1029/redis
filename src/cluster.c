@@ -445,6 +445,8 @@ void clusterInit(void) {
     server.cluster->failover_auth_epoch = 0;
     server.cluster->cant_failover_reason = CLUSTER_CANT_FAILOVER_NONE;
     server.cluster->lastVoteEpoch = 0;
+    server.cluster->last_cluster_cron_cycle = 0;
+    server.cluster->stats_mstimediff = 0;
     for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
         server.cluster->stats_bus_messages_sent[i] = 0;
         server.cluster->stats_bus_messages_received[i] = 0;
@@ -3391,6 +3393,16 @@ void clusterCron(void) {
 
     iteration++; /* Number of times this function was called so far. */
 
+    if (server.cluster->last_cluster_cron_cycle > 0) {
+        /* Check if system time was jumped*/
+        long long mstimediff = now - server.cluster->last_cluster_cron_cycle;
+        if (abs(mstimediff) > server.time_jump_to_reschedule * 1000) {
+            server.cluster->stats_mstimediff += mstimediff;
+            serverLog(LL_WARNING, "%lldms since last cycle %lld", mstimediff,
+                      server.cluster->last_cluster_cron_cycle);
+        }
+    }
+	
     /* We want to take myself->ip in sync with the cluster-announce-ip option.
      * The option can be set at runtime via CONFIG SET, so we periodically check
      * if the option changed to reflect this into myself->ip. */
@@ -3627,6 +3639,8 @@ void clusterCron(void) {
 
     if (update_state || server.cluster->state == CLUSTER_FAIL)
         clusterUpdateState();
+    
+    server.cluster->last_cluster_cron_cycle = now;
 }
 
 /* This function is called before the event handler returns to sleep for
@@ -3813,7 +3827,14 @@ void clusterUpdateState(void) {
      * reconfigure this node. Note that the delay is calculated starting from
      * the first call to this function and not since the server start, in order
      * to don't count the DB loading time. */
-    if (first_call_time == 0) first_call_time = mstime();
+    if (first_call_time == 0) 
+	    first_call_time = mstime();
+    else 
+	    first_call_time += server.cluster->stats_mstimediff;
+
+    among_minority_time += server.cluster->stats_mstimediff;
+    server.cluster->stats_mstimediff = 0;
+	
     if (nodeIsMaster(myself) &&
         server.cluster->state == CLUSTER_FAIL &&
         mstime() - first_call_time < CLUSTER_WRITABLE_DELAY) return;

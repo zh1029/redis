@@ -534,6 +534,8 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"time-jump-to-reschedule") && argc >= 2) {
+            server.time_jump_to_reschedule = atoi(argv[1]);
 #ifdef USE_OPENSSL
         } else if (!strcasecmp(argv[0],"tls-port") && argc == 2) {
             server.tls_port = atoi(argv[1]);
@@ -876,6 +878,8 @@ void configSetCommand(client *c) {
         if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
         if (server.config_hz > CONFIG_MAX_HZ) server.config_hz = CONFIG_MAX_HZ;
     } config_set_numerical_field(
+      "time-jump-to-reschedule",server.time_jump_to_reschedule,1,65535) {
+    } config_set_numerical_field(
       "watchdog-period",ll,0,INT_MAX) {
         if (ll)
             enableWatchdog(ll);
@@ -1090,6 +1094,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("min-slaves-max-lag",server.repl_min_slaves_max_lag);
     config_get_numerical_field("min-replicas-max-lag",server.repl_min_slaves_max_lag);
     config_get_numerical_field("hz",server.config_hz);
+    config_get_numerical_field("time-jump-to-reschedule",server.time_jump_to_reschedule);
 
     /* Bool (yes/no) values */
     config_get_bool_field("activedefrag", server.active_defrag_enabled);
