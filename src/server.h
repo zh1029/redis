@@ -179,6 +179,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MAX 25 /* 25% CPU max (at upper threshold) */
 #define CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS 1000 /* keys with more than 1000 fields will be processed separately */
 #define CONFIG_DEFAULT_PROTO_MAX_BULK_LEN (512ll*1024*1024) /* Bulk request max size */
+#define CONFIG_DEFAULT_TIME_JUMP_RESCHEDULE 3 /*3 seconds*/
 #define CONFIG_DEFAULT_TRACKING_TABLE_MAX_FILL 10 /* 10% tracking table max fill. */
 #define CONFIG_DEFAULT_ACTIVE_EXPIRE_EFFORT 1 /* From 1 to 10. */
 
@@ -1471,6 +1472,7 @@ struct redisServer {
     int tls_replication;
     int tls_auth_clients;
     redisTLSContextConfig tls_ctx_config;
+    int time_jump_to_reschedule;  /*system time jump threshold to reschedule*/
 };
 
 typedef struct pubsubPattern {
