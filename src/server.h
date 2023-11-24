@@ -673,6 +673,14 @@ typedef enum {
 #define serverAssert(_e) (likely(_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
 
+/* The following macros provide assertions that are only executed during test builds and should be used to add 
+ * assertions that are too computationally expensive or dangerous to run during normal operations.  */
+#ifdef DEBUG_ASSERTIONS
+#define debugServerAssertWithInfo(...) serverAssertWithInfo(__VA_ARGS__)
+#else
+#define debugServerAssertWithInfo(...)
+#endif
+
 /* latency histogram per command init settings */
 #define LATENCY_HISTOGRAM_MIN_VALUE 1L        /* >= 1 nanosec */
 #define LATENCY_HISTOGRAM_MAX_VALUE 1000000000L  /* <= 1 secs */
@@ -730,6 +738,7 @@ struct RedisModuleCtx;
 struct moduleLoadQueueEntry;
 struct RedisModuleKeyOptCtx;
 struct RedisModuleCommand;
+struct clusterState;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -962,8 +971,9 @@ typedef struct replBufBlock {
 
 typedef struct dbDictState {
     list *rehashing;                       /* List of dictionaries in this DB that are currently rehashing. */
-    int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries. */
+    int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used for cluster-enabled). */
     unsigned long long key_count;          /* Total number of keys in this DB. */
+    unsigned long long bucket_count;       /* Total number of buckets in this DB across dictionaries (only used for cluster-enabled). */
     unsigned long long *slot_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
 } dbDictState;
 
@@ -988,7 +998,7 @@ typedef struct redisDb {
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
-    int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
+    int dict_count;             /* Indicates total number of dictionaries owned by this DB, 1 dict per slot in cluster mode. */
     dbDictState sub_dict[2];  /* Metadata for main and expires dictionaries */
 } redisDb;
 
@@ -1706,7 +1716,7 @@ struct redisServer {
     long long stat_io_writes_processed; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_total_reads_processed; /* Total number of read events processed */
     redisAtomic long long stat_total_writes_processed; /* Total number of write events processed */
-    long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
+    redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
@@ -2427,7 +2437,9 @@ typedef struct dbIterator dbIterator;
 /* DB iterator specific functions */
 dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType);
 dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot);
+void dbReleaseIterator(dbIterator *dbit);
 dict *dbIteratorNextDict(dbIterator *dbit);
+dict *dbGetDictFromIterator(dbIterator *dbit);
 int dbIteratorGetCurrentSlot(dbIterator *dbit);
 dictEntry *dbIteratorNext(dbIterator *iter);
 
@@ -2615,6 +2627,7 @@ void addReplySetLen(client *c, long length);
 void addReplyAttributeLen(client *c, long length);
 void addReplyPushLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
+void addExtendedReplyHelp(client *c, const char **help, const char **extended_help);
 void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
 void copyReplicaOutputBuffer(client *dst, client *src);
@@ -3075,11 +3088,14 @@ int mustObeyClient(client *c);
 #ifdef __GNUC__
 void _serverLog(int level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
+void serverLogFromHandler(int level, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
 #else
+void serverLogFromHandler(int level, const char *fmt, ...);
 void _serverLog(int level, const char *fmt, ...);
 #endif
 void serverLogRaw(int level, const char *msg);
-void serverLogFromHandler(int level, const char *msg);
+void serverLogRawFromHandler(int level, const char *msg);
 void usage(void);
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
@@ -3118,7 +3134,9 @@ int calculateKeySlot(sds key);
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType);
 size_t dbMemUsage(redisDb *db, dbKeyType keyType);
 dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType);
-unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long cursor, dictScanFunction *fn, int (dictScanValidFunction)(dict *d), void *privdata);
+unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long cursor,
+                          int onlyslot, dictScanFunction *fn,
+                          int (dictScanValidFunction)(dict *d), void *privdata);
 int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_expand);
 unsigned long long cumulativeKeyCountRead(redisDb *db, int idx, dbKeyType keyType);
 int getFairRandomSlot(redisDb *db, dbKeyType keyType);

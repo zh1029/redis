@@ -54,10 +54,12 @@
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
     if (now > t) {
+        enterExecutionUnit(1, 0);
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
         deleteExpiredKeyAndPropagate(db,keyobj);
         decrRefCount(keyobj);
+        exitExecutionUnit();
         return 1;
     } else {
         return 0;
@@ -275,7 +277,7 @@ void activeExpireCycle(int type) {
             long checked_buckets = 0;
 
             while (data.sampled < num && checked_buckets < max_buckets) {
-                db->expires_cursor = dbScan(db, DB_EXPIRES, db->expires_cursor, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
+                db->expires_cursor = dbScan(db, DB_EXPIRES, db->expires_cursor, -1, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
                 if (db->expires_cursor == 0) {
                     break;
                 }
